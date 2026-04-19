@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>解說模式 - AI 在地導遊</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div id="view-guide" class="view active glass-panel">
+            <h1>熱情解說模式</h1>
+            <p id="guide-greeting" style="color:var(--primary); font-weight:bold;"></p>
+            <p>說出你想跟外國人介紹的故事，按下結束後將自動翻譯成您的道地英文語音！</p>
+            
+            <button class="btn primary" id="guide-start" style="padding: 2rem; font-size:1.3rem;">🎙️ 按下開始說話</button>
+            <button class="btn danger pulse" id="guide-stop" style="padding: 2rem; font-size:1.3rem;">⏹ 聆聽中... 點擊結束</button>
+            
+            <div id="guide-status" class="status-badge" style="margin-top: 2rem;">狀態：等待解說</div>
+            
+            <div id="translation-result" style="display: none; background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 12px; font-size: 0.95rem; width: 100%; line-height: 1.5; margin-top: 1rem; color: #FFF; text-align: left; border-left: 4px solid var(--primary);">
+                <strong style="color: #00d2ff;">您的原文：</strong><br>
+                <span id="trans-zh"></span><br><br>
+                <strong style="color: #ff9900;">AI 道地英文：</strong><br>
+                <span id="trans-en"></span>
+            </div>
+            
+            <a class="logout-link" href="#" id="logout-btn">登出目前帳號</a>
+        </div>
+    </div>
+    <script>
+        const currentUser = localStorage.getItem('currentUser');
+        const currentUserName = localStorage.getItem('currentUserName');
+        if(!currentUser) window.location.href = '/';
+        
+        document.getElementById('guide-greeting').innerText = `導遊 ${currentUserName}，上工囉！`;
+        document.getElementById('logout-btn').onclick = () => { localStorage.clear(); window.location.href = '/'; };
+        
+        let recorder = null;
+        let chunks = [];
+        
+        document.getElementById('guide-start').onclick = async () => {
+            chunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            recorder = new MediaRecorder(stream);
+            recorder.ondataavailable = e => chunks.push(e.data);
+            recorder.onstop = uploadAudio;
+            recorder.start();
+            
+            document.getElementById('guide-start').style.display = 'none';
+            document.getElementById('guide-stop').style.display = 'flex';
+            document.getElementById('guide-status').innerText = "狀態：🎙️正在聽您解說...";
+            document.getElementById('translation-result').style.display = 'none';
+        };
+        
+        document.getElementById('guide-stop').onclick = () => {
+            if(recorder && recorder.state === 'recording') {
+                recorder.stop();
+                document.getElementById('guide-stop').style.display = 'none';
+                document.getElementById('guide-status').innerText = "狀態：⏳ 音檔上傳中...";
+            }
+        };
+
+        async function uploadAudio() {
+            const blob = new Blob(chunks, { type: 'audio/webm' });
+            const formData = new FormData();
+            formData.append('userId', currentUser);
+            formData.append('voiceNote', blob);
+            
+            const statusEl = document.getElementById('guide-status');
+            try {
+                const res = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if(res.ok) {
+                    statusEl.innerText = "🚀 語音上傳成功，正在進行語音轉文字 (STT)...";
+                    const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:8000' : '';
+                    
+                    const sttReq = await fetch(`${API_BASE}/api/stt`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ audio_path: data.url })
+                    });
+                    const sttData = await sttReq.json();
+                    
+                    if(sttData.status === 'success') {
+                        statusEl.innerText = "🤖 辨識成功！正在進行導遊情境翻譯潤飾...";
+                        document.getElementById('translation-result').style.display = 'block';
+                        document.getElementById('trans-zh').innerText = sttData.text;
+                        document.getElementById('trans-en').innerText = "...等待 AI 翻譯中...";
+                        
+                        const transReq = await fetch(`${API_BASE}/api/translate`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ride_id: currentUser, text: sttData.text })
+                        });
+                        const transData = await transReq.json();
+                        
+                        if(transData.final_english && !transData.final_english.includes("Failed")) {
+                            statusEl.innerText = "✨ 翻譯完成！請看畫面結果。";
+                            document.getElementById('trans-en').innerText = transData.final_english;
+                        } else {
+                            statusEl.innerText = "❌ 翻譯失敗";
+                            document.getElementById('trans-en').innerText = "(伺服器錯誤)";
+                        }
+                    } else {
+                        statusEl.innerText = "❌ 語音辨識失敗：" + (sttData.error || '不明錯誤');
+                    }
+                } else {
+                    statusEl.innerText = "❌ 上傳雲端失敗！";
+                }
+            } catch (err) {
+                statusEl.innerText = "❌ API 連線錯誤 (請確認 python server 有啟動)";
+            }
+            document.getElementById('guide-start').style.display = 'flex';
+        }
+    </script>
+</body>
+</html>

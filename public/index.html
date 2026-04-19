@@ -1,91 +1,47 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="zh-TW">
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Recorder</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            text-align: center;
-            padding: 20px;
-            background: #f4f4f9;
-        }
-
-        button {
-            width: 80%;
-            padding: 20px;
-            margin: 10px;
-            font-size: 1.2rem;
-            border-radius: 10px;
-            border: none;
-            color: white;
-            transition: 0.3s;
-        }
-
-        #start {
-            background: #28a745;
-        }
-
-        #stop {
-            background: #dc3545;
-            display: none;
-        }
-
-        #status {
-            font-weight: bold;
-            color: #333;
-            margin-top: 20px;
-        }
-    </style>
+    <title>AI 在地導遊 - 登入</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
-
 <body>
-    <h2>4G/5G Voice Uplink</h2>
-    <button id="start">🔴 Start Recording</button>
-    <button id="stop">⏹ Stop & Send</button>
-    <p id="status">Status: Ready</p>
-
+    <div class="container">
+        <div id="view-login" class="view active glass-panel">
+            <h1>AI 在地導遊</h1>
+            <p>請使用您的 Google 帳號登入系統</p>
+            <div id="g_id_onload"
+                 data-client_id="970732083734-28k4jtivkvrdcuf314sp3d1c3ltfn9oj.apps.googleusercontent.com"
+                 data-context="signin"
+                 data-ux_mode="popup"
+                 data-callback="handleGoogleLogin"
+                 data-auto_prompt="false"></div>
+            <div class="g_id_signin" data-type="standard" data-shape="rectangular" data-theme="outline" data-text="signin_with" data-size="large" data-logo_alignment="center"></div>
+        </div>
+    </div>
     <script>
-        let recorder, chunks = [];
-        const startBtn = document.getElementById('start');
-        const stopBtn = document.getElementById('stop');
-        const status = document.getElementById('status');
-
-        startBtn.onclick = async () => {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            recorder = new MediaRecorder(stream);
-            recorder.ondataavailable = e => chunks.push(e.data);
-            recorder.onstop = uploadAudio;
-            recorder.start();
-
-            startBtn.style.display = 'none';
-            stopBtn.style.display = 'block';
-            status.innerText = "Status: Recording...";
-        };
-
-        stopBtn.onclick = () => {
-            recorder.stop();
-            startBtn.style.display = 'block';
-            stopBtn.style.display = 'none';
-        };
-
-        async function uploadAudio() {
-            status.innerText = "Status: Uploading via 4G/5G...";
-            const blob = new Blob(chunks, { type: 'audio/webm' });
-            const formData = new FormData();
-            formData.append('voiceNote', blob);
-
-            try {
-                const res = await fetch('/upload', { method: 'POST', body: formData });
-                const data = await res.json();
-                status.innerText = "Status: " + data.message;
-            } catch (err) {
-                status.innerText = "Status: Upload Failed!";
+        function decodeJwtResponse(token) {
+            let base64Url = token.split('.')[1];
+            let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            return JSON.parse(decodeURIComponent(window.atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')));
+        }
+        function handleGoogleLogin(response) {
+            const payload = decodeJwtResponse(response.credential);
+            const googleId = payload.sub;
+            localStorage.setItem('currentUser', googleId);
+            localStorage.setItem('currentUserName', payload.name);
+            
+            const hasEnrolled = localStorage.getItem(`voice_enrolled_${googleId}`);
+            if (!hasEnrolled) {
+                window.location.href = '/register';
+            } else {
+                window.location.href = `/user/${googleId}/record`;
             }
-            chunks = [];
         }
     </script>
 </body>
-
 </html>
